@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analizador Léxico</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+
+  <header>
+    <h1>Analizador Léxico</h1>
+    <p>Lenguajes y Autómatas &nbsp;·&nbsp; Ingresa tu código para tokenizarlo</p>
+  </header>
+
+  <div class="layout">
+
+    <!-- Panel izquierdo: editor -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Editor de código</span>
+        <div class="dot-row">
+          <div class="dot r"></div>
+          <div class="dot y"></div>
+          <div class="dot g"></div>
+        </div>
+      </div>
+      <textarea id="src" placeholder="// Escribe o pega tu código aquí...
+int x = 10;
+if (x > 5) {
+    return x;
+}"></textarea>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="analizar()"> Analizar</button>
+        <button class="btn-secondary" onclick="limpiar()"> Limpiar</button>
+      </div>
+    </div>
+
+    <!-- Panel derecho: resultados -->
+    <div class="right-col">
+
+      <div class="panel" id="stats-panel" style="display:none">
+        <div class="panel-header">
+          <span class="panel-title">Resumen</span>
+        </div>
+        <div class="stats-grid" id="stats-grid"></div>
+      </div>
+
+      <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+        <div class="panel-header">
+          <span class="panel-title">Tabla de tokens</span>
+          <label
+            style="display:flex;align-items:center;gap:6px;font-size:.65rem;color:var(--muted);font-family:var(--mono);cursor:pointer;">
+            <input type="checkbox" id="show-ws" onchange="analizar()" style="accent-color:var(--accent);">
+            Mostrar espacios
+          </label>
+        </div>
+        <div class="token-table-wrap" id="table-wrap">
+          <div class="placeholder">
+            <span class="placeholder-icon">{ }</span>
+            <span>Ingresa código y presiona Analizar</span>
+          </div>
+        </div>
+        <div class="legend" id="legend" style="display:none"></div>
+      </div>
+
+    </div>
+  </div>
+
+</body>
+
+</html>

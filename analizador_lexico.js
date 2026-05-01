@@ -24,7 +24,9 @@ const PALABRAS_RESERVADAS = new Set([
     'print', 'input', 'return', 'include', 'using', 'namespace',
 ]);
 
-const ESPECIALES = new Set([...'+-*/=<>!(){}[];,.%&|^~?:@#']);
+const OPERADORES = new Set(['=', '+', '-', '*', '/', '%', '&', '|', '^', '~', '<', '>', '!', '?']);
+
+const ESPECIALES = new Set([...'(){}[];,.:@#']);
 
 const META = {
     ESPACIO_BLANCO: { label: 'ESPACIO_BLANCO', bg: 'var(--c-espacio)', fg: 'var(--t-espacio)' },
@@ -36,6 +38,7 @@ const META = {
     REAL: { label: 'REAL', bg: 'var(--c-real)', fg: 'var(--t-real)' },
     CADENA: { label: 'CADENA', bg: 'var(--c-cadena)', fg: 'var(--t-cadena)' },
     COMENTARIO: { label: 'COMENTARIO', bg: 'var(--c-comentario)', fg: 'var(--t-comentario)' },
+    OPERADOR: { label: 'OPERADOR', bg: 'var(--c-operador)', fg: 'var(--t-operador)' },
     CARACTER_ESPECIAL: { label: 'CARACTER_ESPECIAL', bg: 'var(--c-especial)', fg: 'var(--t-especial)' },
     DESCONOCIDO: { label: 'DESCONOCIDO', bg: 'var(--c-desconocido)', fg: 'var(--t-desconocido)' },
 };
@@ -78,10 +81,31 @@ function tokenizar(src) {
 
         // CADENA " o '
         if (c === '"' || c === "'") {
-            const q = c; let j = i + 1;
-            while (j < n && src[j] !== q) { if (src[j] === '\\') j++; j++; }
-            j++;
-            tokens.push(['CADENA', src.slice(i, j)]); i = j; continue;
+            const q = c;
+            // Primera comilla como CARACTER_ESPECIAL
+            tokens.push(['CARACTER_ESPECIAL', q]);
+            let j = i + 1;
+            let contenido = '';
+            while (j < n && src[j] !== q) {
+                if (src[j] === '\\' && j + 1 < n) {
+                    contenido += src[j] + src[j + 1];
+                    j += 2;
+                } else {
+                    contenido += src[j];
+                    j++;
+                }
+            }
+            // Contenido de la cadena como CADENA
+            if (contenido.length > 0) {
+                tokens.push(['CADENA', contenido]);
+            }
+            // Comilla de cierre como CARACTER_ESPECIAL
+            if (j < n && src[j] === q) {
+                tokens.push(['CARACTER_ESPECIAL', q]);
+                j++;
+            }
+            i = j;
+            continue;
         }
 
         // ENTERO o REAL
@@ -104,6 +128,9 @@ function tokenizar(src) {
             tokens.push([PALABRAS_RESERVADAS.has(lex) ? 'PALABRA_RESERVADA' : 'VARIABLE', lex]);
             i = j; continue;
         }
+
+        // OPERADOR
+        if (OPERADORES.has(c)) { tokens.push(['OPERADOR', c]); i++; continue; }
 
         // CARACTER ESPECIAL
         if (ESPECIALES.has(c)) { tokens.push(['CARACTER_ESPECIAL', c]); i++; continue; }
@@ -143,34 +170,36 @@ function analizar() {
             <div class="stat-label">${m.label.replace('_', '<br>')}</div>
           </div>`;
             }).join('');
-    document.getElementById('stats-panel').style.display = '';
 
     // ── Tabla ──
     const wrap = document.getElementById('table-wrap');
     if (!visibles.length) {
         wrap.innerHTML = '<div class="placeholder"><span class="placeholder-icon">∅</span><span>Sin tokens para mostrar</span></div>';
-        return;
+    } else {
+        const filas = visibles.map(([tipo, val], idx) => {
+            const m = META[tipo] || META.DESCONOCIDO;
+            const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<tr>
+              <td>${idx + 1}</td>
+              <td><span class="badge" style="background:${m.bg};color:${m.fg}">${m.label}</span></td>
+              <td style="color:${m.fg};font-family:var(--mono)">${escaped}</td>
+            </tr>`;
+        }).join('');
+
+        wrap.innerHTML = `<table>
+        <thead><tr><th>#</th><th>Tipo</th><th>Lexema</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>`;
     }
 
-    const filas = visibles.map(([tipo, val], idx) => {
-        const m = META[tipo] || META.DESCONOCIDO;
-        const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `<tr>
-      <td>${idx + 1}</td>
-      <td><span class="badge" style="background:${m.bg};color:${m.fg}">${m.label}</span></td>
-      <td style="color:${m.fg};font-family:var(--mono)">${escaped}</td>
-    </tr>`;
-    }).join('');
-
-    wrap.innerHTML = `<table>
-    <thead><tr><th>#</th><th>Tipo</th><th>Lexema</th></tr></thead>
-    <tbody>${filas}</tbody>
-  </table>`;
+    // ── Árbol Sintáctico ──
+    const ast = analizarArbol(tokens);
+    const treeWrap = document.getElementById('tree-wrap');
+    renderAstTree(ast, treeWrap);
 
     // ── Leyenda ──
     const tipos = [...new Set(visibles.map(([t]) => t))];
     const legend = document.getElementById('legend');
-    legend.style.display = '';
     legend.innerHTML = tipos.map(t => {
         const m = META[t] || META.DESCONOCIDO;
         return `<div class="leg-item">
@@ -184,51 +213,13 @@ function limpiar() {
     document.getElementById('src').value = '';
     document.getElementById('table-wrap').innerHTML =
         '<div class="placeholder"><span class="placeholder-icon">{ }</span><span>Ingresa código y presiona Analizar</span></div>';
-    document.getElementById('stats-panel').style.display = 'none';
-    document.getElementById('legend').style.display = 'none';
-}
-
-// ══════════════════════════════════════════════════
-//  EJEMPLOS
-// ══════════════════════════════════════════════════
-const EJEMPLOS = {
-    c: `// Programa en C
-int main() {
-    int x = 10;
-    float pi = 3.14;
-    char letra = 'A';
-    /* verificar condicion */
-    if (x > 5) {
-        x = x + 1;
-        return x;
-    } else {
-        return 0;
-    }
-}`,
-    py: `# Programa en Python
-def factorial(n):
-    if n == 0:
-        return 1
-    resultado = n * factorial(n - 1)
-    return resultado
-
-x = factorial(5)
-print("Resultado: ", x)`,
-    js: `// Programa en JavaScript
-function suma(a, b) {
-    let resultado = a + b;
-    /* retornar valor */
-    if (resultado > 100) {
-        return 100;
-    }
-    return resultado;
-}
-let x = suma(45, 60);`
-};
-
-function cargarEjemplo(k) {
-    document.getElementById('src').value = EJEMPLOS[k];
-    analizar();
+    const treeWrap = document.getElementById('tree-wrap');
+    treeWrap.innerHTML = `<div class="tree-placeholder" id="tree-placeholder">
+          <img src="nodos.png" alt="Árbol sintáctico">
+          <span>El árbol sintáctico aparecerá aquí</span>
+        </div>`;
+    document.getElementById('stats-grid').innerHTML = '';
+    document.getElementById('legend').innerHTML = '';
 }
 
 // Ctrl+Enter para analizar

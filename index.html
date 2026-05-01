@@ -19,38 +19,40 @@
 
   <div class="layout">
 
-    <!-- Panel izquierdo: editor -->
-    <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Editor de código</span>
-        <div class="dot-row">
-          <div class="dot r"></div>
-          <div class="dot y"></div>
-          <div class="dot g"></div>
+    <div class="left-col">
+      <!-- Panel izquierdo: editor -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Editor de código</span>
+          <div class="dot-row">
+            <div class="dot r"></div>
+            <div class="dot y"></div>
+            <div class="dot g"></div>
+          </div>
         </div>
-      </div>
-      <textarea id="src" placeholder="// Escribe o pega tu código aquí...
+        <textarea id="src" placeholder="// Escribe o pega tu código aquí...
   int x = 10;
   if (x > 5) {
       return x;
   }"></textarea>
-      <div class="btn-row">
-        <button class="btn-primary" onclick="analizar()"> Analizar</button>
-        <button class="btn-secondary" onclick="limpiar()"> Limpiar</button>
+        <div class="btn-row">
+          <button class="btn-primary" onclick="analizar()"> Analizar</button>
+          <button class="btn-secondary" onclick="limpiar()"> Limpiar</button>
+        </div>
       </div>
     </div>
 
-    <!-- Panel derecho: resultados -->
     <div class="right-col">
-
-      <div class="panel" id="stats-panel" style="display:none">
+      <!-- Resumen -->
+      <div class="panel">
         <div class="panel-header">
           <span class="panel-title">Resumen</span>
         </div>
         <div class="stats-grid" id="stats-grid"></div>
       </div>
 
-      <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+      <!-- Tabla de tokens -->
+      <div class="panel">
         <div class="panel-header">
           <span class="panel-title">Tabla de tokens</span>
           <label
@@ -65,13 +67,28 @@
             <span>Ingresa código y presiona Analizar</span>
           </div>
         </div>
-        <div class="legend" id="legend" style="display:none"></div>
+        <div class="legend" id="legend"></div>
       </div>
-
     </div>
+
+    <!-- Árbol sintáctico - abajo de todo -->
+    <div class="panel tree-panel-full">
+      <div class="panel-header">
+        <span class="panel-title">Árbol Sintáctico</span>
+      </div>
+      <div class="tree-wrap" id="tree-wrap">
+        <div class="tree-placeholder" id="tree-placeholder">
+          <img src="nodos.png" alt="Árbol sintáctico">
+          <span>El árbol sintáctico aparecerá aquí</span>
+        </div>
+      </div>
+      </div>
+    </div>
+
   </div>
 
-<script src="analizador.js"></script>
+<script src="analizador_lexico.js"></script>
+<!--<script src="arbol_sintactico.js"></script>-->
 
 </body>
 

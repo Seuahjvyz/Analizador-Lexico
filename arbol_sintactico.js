@@ -1,484 +1,471 @@
-
 // ══════════════════════════════════════════════════
-//  ARBOL SINTACTICO (AST)
+//  ÁRBOL SINTÁCTICO — SVG vertical, sin desbordamiento
 // ══════════════════════════════════════════════════
-const AST_NODE_TYPES = {
-    PROGRAM: 'Programa',
-    BLOCK: 'Bloque',
-    VAR_DECL: 'Declaración',
-    ASSIGN: 'Asignación',
-    IF: 'If',
-    WHILE: 'While',
-    FOR: 'For',
-    RETURN: 'Return',
-    FUNCTION_CALL: 'Llamada a función',
-    FUNCTION_DECL: 'Declaración de función',
-    BINARY_OP: 'Operación binaria',
-    UNARY_OP: 'Operación unaria',
-    IDENTIFIER: 'Identificador',
-    NUMBER: 'Número',
-    STRING: 'Cadena',
-    BOOLEAN: 'Booleano',
-    MEMBER_ACCESS: 'Acceso a miembro',
-    ARRAY_INDEX: 'Indexación',
-    CONDITIONAL: 'Condicional',
-    PARAM: 'Parámetro',
-    ARGUMENT: 'Argumento',
-};
 
 class ASTNode {
-    constructor(type, value = null, children = []) {
-        this.type = type;
-        this.value = value;
-        this.children = children;
+    constructor(lexema = null, children = []) {
+        this.lexema   = lexema;
+        this.children = [...children];
     }
-    addChild(child) {
-        this.children.push(child);
-        return this;
-    }
+    addChild(child) { if (child) this.children.push(child); return this; }
 }
 
 // ══════════════════════════════════════════════════
-//  PARSER SINTACTICO
+//  TOKENIZADOR FILTRADO
+// ══════════════════════════════════════════════════
+const IGNORAR = new Set(['ESPACIO_BLANCO','TABULADOR','SALTO_LINEA','COMENTARIO']);
+
+// ══════════════════════════════════════════════════
+//  PARSER
 // ══════════════════════════════════════════════════
 class Parser {
     constructor(tokens) {
-        this.tokens = tokens.filter(([t]) => !['ESPACIO_BLANCO', 'TABULADOR', 'SALTO_LINEA', 'COMENTARIO'].includes(t));
-        this.pos = 0;
+        this.toks = tokens.filter(([t]) => !IGNORAR.has(t));
+        this.pos  = 0;
     }
 
-    peek() { return this.tokens[this.pos] || [null, null]; }
-    advance() { return this.tokens[this.pos++]; }
-    match(type, value = null) {
-        const [t, v] = this.peek();
-        if (t === type && (value === null || v === value)) {
-            this.advance();
-            return true;
-        }
-        if (type === 'OPERADOR' && t === 'CARACTER_ESPECIAL' && (value === null || v === value)) {
-            this.advance();
-            return true;
-        }
-        return false;
-    }
-    expect(type, value = null) {
-        const [t, v] = this.peek();
-        if (t === type && (value === null || v === value)) {
-            return this.advance();
-        }
-        throw new Error(`Se esperaba ${value || type}, pero se encontró ${v || t} en posición ${this.pos}`);
-    }
-    isType(type, value = null) {
-        const [t, v] = this.peek();
-        if (type === 'OPERADOR' && t === 'CARACTER_ESPECIAL') {
-            return value === null || v === value;
-        }
-        return t === type && (value === null || v === value);
-    }
-    isEOF() { return this.pos >= this.tokens.length; }
+    peek()    { return this.toks[this.pos]   || [null,null]; }
+    advance() { return this.toks[this.pos++] || [null,null]; }
+    isEOF()   { return this.pos >= this.toks.length; }
 
+    is(type, val=null) {
+        const [t,v] = this.peek();
+        return t===type && (val===null || v===val);
+    }
+    eat(type,val=null){ if(this.is(type,val)){this.advance();return true;} return false; }
+
+    // ─────────────────────────────────────────────
     parse() {
-        const program = new ASTNode(AST_NODE_TYPES.PROGRAM);
+        const root = new ASTNode('PROGRAMA');
         while (!this.isEOF()) {
-            program.addChild(this.parseStatement());
+            const s = this.parseStatement();
+            if (s) root.addChild(s);
         }
-        return program;
+        return root;
     }
 
     parseStatement() {
-        const [t, v] = this.peek();
+        const [t,v] = this.peek();
 
-        if (this.match('CARACTER_ESPECIAL', ';')) {
-            return new ASTNode('Empty');
+        // punto y coma suelto → ignorar
+        if (this.is('CARACTER_ESPECIAL',';')) { this.advance(); return null; }
+        // punto suelto → ignorar
+        if (this.is('CARACTER_ESPECIAL','.')) { this.advance(); return null; }
+
+        if (t === 'PALABRA_RESERVADA') {
+            switch(v){
+                case 'if':      return this.parseIf();
+                case 'else':    return this.parseElseAlone();
+                case 'while':   return this.parseWhile();
+                case 'for':     return this.parseFor();
+                case 'return':  return this.parseReturn();
+                case 'class':   return this.parseClass();
+                case 'def': case 'function': return this.parseFunction();
+                case 'int': case 'float': case 'double': case 'char':
+                case 'string': case 'String': case 'bool': case 'boolean':
+                case 'long': case 'short': case 'void':
+                case 'var': case 'let': case 'const':
+                    return this.parseDeclaration();
+            }
         }
-        if (t === 'PALABRA_RESERVADA' && (v === 'if' || v === 'elif')) {
-            return this.parseIf();
+
+        return this.parseExpr();
+    }
+
+    // tipo [nombre] [= expr] ;
+    parseDeclaration() {
+        const typeNode = new ASTNode(this.advance()[1]);
+        let nameNode = null;
+        if (this.is('VARIABLE')) {
+            nameNode = new ASTNode(this.advance()[1]);
+            typeNode.addChild(nameNode);
         }
-        if (t === 'PALABRA_RESERVADA' && v === 'else') {
-            return this.parseElse();
-        }
-        if (t === 'PALABRA_RESERVADA' && v === 'while') {
-            return this.parseWhile();
-        }
-        if (t === 'PALABRA_RESERVADA' && v === 'for') {
-            return this.parseFor();
-        }
-        if (t === 'PALABRA_RESERVADA' && v === 'return') {
-            return this.parseReturn();
-        }
-        if (t === 'PALABRA_RESERVADA' && (v === 'break' || v === 'continue')) {
+        if (this.is('OPERADOR','=')) {
             this.advance();
-            this.match('CARACTER_ESPECIAL', ';');
-            return new ASTNode(v === 'break' ? 'Break' : 'Continue');
+            const eq = new ASTNode('=');
+            if (nameNode) typeNode.children.pop();
+            eq.addChild(nameNode || new ASTNode('?'));
+            eq.addChild(this.parseExpr());
+            typeNode.addChild(eq);
         }
-        if (t === 'PALABRA_RESERVADA' && (v === 'function' || v === 'def')) {
-            return this.parseFunctionDecl();
+        this.eat('CARACTER_ESPECIAL',';');
+        return typeNode;
+    }
+
+    // class Name { ... }
+    parseClass() {
+        const node = new ASTNode('class');
+        this.advance();
+        if (this.is('VARIABLE')) node.addChild(new ASTNode(this.advance()[1]));
+        if (this.is('CARACTER_ESPECIAL','{')) node.addChild(this.parseBlock());
+        return node;
+    }
+
+    // { sentencias }  → nodo '{ }'
+    parseBlock() {
+        const node = new ASTNode('{ }');
+        this.eat('CARACTER_ESPECIAL','{');
+        while (!this.is('CARACTER_ESPECIAL','}') && !this.isEOF()) {
+            const s = this.parseStatement();
+            if (s) node.addChild(s);
         }
-        if (t === 'PALABRA_RESERVADA' && v === 'class') {
-            return this.parseClassDecl();
-        }
-        return this.parseExpressionStatement();
+        this.eat('CARACTER_ESPECIAL','}');
+        return node;
+    }
+
+    parseBody() {
+        if (this.is('CARACTER_ESPECIAL','{')) return this.parseBlock();
+        return this.parseStatement();
     }
 
     parseIf() {
-        this.expect('PALABRA_RESERVADA');
-        this.match('CARACTER_ESPECIAL', '(');
-        const cond = this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ')');
-        const body = this.parseBlock();
-        const node = new ASTNode(AST_NODE_TYPES.IF, 'if', [cond, body]);
-        if (!this.isEOF()) {
-            const [t, v] = this.peek();
-            if (t === 'PALABRA_RESERVADA' && (v === 'elif' || v === 'else')) {
-                node.addChild(this.parseStatement());
-            }
+        const node = new ASTNode('if');
+        this.advance();
+        node.addChild(this.parseParenGroup());
+        node.addChild(this.parseBody());
+        if (this.is('PALABRA_RESERVADA','else')) {
+            this.advance();
+            const e = new ASTNode('else');
+            e.addChild(this.parseBody());
+            node.addChild(e);
         }
         return node;
     }
-
-    parseElse() {
-        this.advance();
-        const body = this.parseBlock();
-        return new ASTNode('Else', 'else', [body]);
+    parseElseAlone() {
+        const n = new ASTNode('else'); this.advance();
+        n.addChild(this.parseBody()); return n;
     }
-
     parseWhile() {
-        this.advance();
-        this.match('CARACTER_ESPECIAL', '(');
-        const cond = this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ')');
-        const body = this.parseBlock();
-        return new ASTNode(AST_NODE_TYPES.WHILE, 'while', [cond, body]);
+        const n = new ASTNode('while'); this.advance();
+        n.addChild(this.parseParenGroup()); n.addChild(this.parseBody()); return n;
     }
-
     parseFor() {
-        this.advance();
-        this.match('CARACTER_ESPECIAL', '(');
-        const init = this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ';');
-        const cond = this.isType('CARACTER_ESPECIAL', ';') ? null : this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ';');
-        const step = this.isType('CARACTER_ESPECIAL', ')') ? null : this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ')');
-        const body = this.parseBlock();
-        return new ASTNode(AST_NODE_TYPES.FOR, 'for', [init, cond, step, body].filter(Boolean));
+        const n = new ASTNode('for'); this.advance();
+        n.addChild(this.parseParenGroup()); n.addChild(this.parseBody()); return n;
     }
-
     parseReturn() {
-        this.advance();
-        let expr = null;
-        if (!this.isType('CARACTER_ESPECIAL', ';')) {
-            expr = this.parseExpression();
-        }
-        this.match('CARACTER_ESPECIAL', ';');
-        return new ASTNode(AST_NODE_TYPES.RETURN, 'return', expr ? [expr] : []);
+        const n = new ASTNode('return'); this.advance();
+        if (!this.is('CARACTER_ESPECIAL',';') && !this.isEOF()) n.addChild(this.parseExpr());
+        this.eat('CARACTER_ESPECIAL',';');
+        return n;
+    }
+    parseFunction() {
+        const n = new ASTNode(this.advance()[1]);
+        if (this.is('VARIABLE')) n.addChild(new ASTNode(this.advance()[1]));
+        n.addChild(this.parseParenGroup());
+        n.addChild(this.parseBody());
+        return n;
     }
 
-    parseFunctionDecl() {
-        this.advance();
-        const nameTok = this.advance();
-        const name = new ASTNode(AST_NODE_TYPES.IDENTIFIER, nameTok[1]);
-        this.match('CARACTER_ESPECIAL', '(');
-        const params = [];
-        if (!this.isType('CARACTER_ESPECIAL', ')')) {
-            params.push(this.parseExpression());
-            while (this.match('CARACTER_ESPECIAL', ',')) {
-                params.push(this.parseExpression());
-            }
+    // ( expr, expr… )  →  nodo '( )'  con hijos = exprs internas
+    parseParenGroup() {
+        const node = new ASTNode('( )');
+        this.eat('CARACTER_ESPECIAL','(');
+        while (!this.is('CARACTER_ESPECIAL',')') && !this.isEOF()) {
+            if (this.is('CARACTER_ESPECIAL',',') || this.is('CARACTER_ESPECIAL',';')) { this.advance(); continue; }
+            const e = this.parseExpr(); if (e) node.addChild(e);
         }
-        this.match('CARACTER_ESPECIAL', ')');
-        const body = this.parseBlock();
-        const node = new ASTNode(AST_NODE_TYPES.FUNCTION_DECL, nameTok[1], [name, body]);
-        params.forEach(p => node.addChild(new ASTNode(AST_NODE_TYPES.PARAM, null, [p])));
+        this.eat('CARACTER_ESPECIAL',')');
         return node;
     }
 
-    parseClassDecl() {
-        this.advance();
-        const nameTok = this.advance();
-        const name = new ASTNode(AST_NODE_TYPES.IDENTIFIER, nameTok[1]);
-        const body = this.parseBlock();
-        return new ASTNode('Class', 'class', [name, body]);
-    }
-
-    parseBlock() {
-        if (this.match('CARACTER_ESPECIAL', '{')) {
-            const block = new ASTNode(AST_NODE_TYPES.BLOCK);
-            while (!this.isType('CARACTER_ESPECIAL', '}') && !this.isEOF()) {
-                block.addChild(this.parseStatement());
+    // [ expr, expr… ]  →  nodo '[ ]'
+    parseBracketGroup() {
+        const node = new ASTNode('[ ]');
+        this.eat('CARACTER_ESPECIAL','[');
+        while (!this.is('CARACTER_ESPECIAL',']') && !this.isEOF()) {
+            if (this.is('CARACTER_ESPECIAL',',')) { this.advance(); continue; }
+            // spread ...x
+            if (this.is('CARACTER_ESPECIAL','.')) {
+                // consume hasta 3 puntos
+                let dots=''; while(this.is('CARACTER_ESPECIAL','.')){this.advance();dots+='.';}
+                const spread = new ASTNode('...');
+                if (this.is('VARIABLE')) spread.addChild(new ASTNode(this.advance()[1]));
+                node.addChild(spread); continue;
             }
-            this.match('CARACTER_ESPECIAL', '}');
-            return block;
+            const e = this.parseExpr(); if (e) node.addChild(e);
         }
-        const stmt = this.parseStatement();
-        this.match('CARACTER_ESPECIAL', ';');
-        return new ASTNode(AST_NODE_TYPES.BLOCK, null, [stmt]);
+        this.eat('CARACTER_ESPECIAL',']');
+        return node;
     }
 
-    parseExpressionStatement() {
-        const expr = this.parseExpression();
-        this.match('CARACTER_ESPECIAL', ';');
-        if (expr.type === AST_NODE_TYPES.ASSIGN || expr.type === AST_NODE_TYPES.VAR_DECL) {
-            return expr;
-        }
-        return expr;
-    }
+    // ── Expresiones ──────────────────────────────
+    parseExpr()   { return this.parseAssign(); }
 
-    parseExpression() {
-        return this.parseAssignment();
-    }
-
-    parseAssignment() {
-        let left = this.parseLogicalOr();
-        if (this.match('OPERADOR', '=')) {
-            if (this.isType('OPERADOR', '=')) {
-                this.pos--;
-                return left;
-            }
-            const right = this.parseAssignment();
-            return new ASTNode(AST_NODE_TYPES.ASSIGN, '=', [left, right]);
-        }
-        return left;
-    }
-
-    parseLogicalOr() {
-        let left = this.parseLogicalAnd();
-        while (this.isType('PALABRA_RESERVADA', 'or')) {
+    parseAssign() {
+        const left = this.parseOr();
+        if (this.is('OPERADOR','=')) {
             this.advance();
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, 'or', [left, this.parseLogicalAnd()]);
+            const n = new ASTNode('=');
+            n.addChild(left); n.addChild(this.parseAssign()); return n;
         }
         return left;
     }
-
-    parseLogicalAnd() {
-        let left = this.parseEquality();
-        while (this.isType('PALABRA_RESERVADA', 'and')) {
-            this.advance();
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, 'and', [left, this.parseEquality()]);
-        }
-        return left;
+    parseOr() {
+        let l = this.parseAnd();
+        while (this.is('PALABRA_RESERVADA','or')||this.is('OPERADOR','|')) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseAnd()); l=n;
+        } return l;
     }
-
-    parseEquality() {
-        let left = this.parseRelational();
-        while (this.isType('OPERADOR') && (this.peek()[1] === '==' || this.peek()[1] === '!=')) {
-            const op = this.advance()[1];
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, op, [left, this.parseRelational()]);
-        }
-        return left;
+    parseAnd() {
+        let l = this.parseEq();
+        while (this.is('PALABRA_RESERVADA','and')||this.is('OPERADOR','&')) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseEq()); l=n;
+        } return l;
     }
-
-    parseRelational() {
-        let left = this.parseAdditive();
-        while (this.isType('OPERADOR') && ['<', '>', '<=', '>='].includes(this.peek()[1])) {
-            const op = this.advance()[1];
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, op, [left, this.parseAdditive()]);
-        }
-        return left;
+    parseEq() {
+        let l = this.parseRel();
+        while (this.is('OPERADOR')&&['==','!='].includes(this.peek()[1])) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseRel()); l=n;
+        } return l;
     }
-
-    parseAdditive() {
-        let left = this.parseMultiplicative();
-        while (this.isType('OPERADOR') && (this.peek()[1] === '+' || this.peek()[1] === '-')) {
-            const op = this.advance()[1];
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, op, [left, this.parseMultiplicative()]);
-        }
-        return left;
+    parseRel() {
+        let l = this.parseAdd();
+        while (this.is('OPERADOR')&&['<','>','<=','>='].includes(this.peek()[1])) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseAdd()); l=n;
+        } return l;
     }
-
-    parseMultiplicative() {
-        let left = this.parseUnary();
-        while (this.isType('OPERADOR') && (this.peek()[1] === '*' || this.peek()[1] === '/' || this.peek()[1] === '%')) {
-            const op = this.advance()[1];
-            left = new ASTNode(AST_NODE_TYPES.BINARY_OP, op, [left, this.parseUnary()]);
-        }
-        return left;
+    parseAdd() {
+        let l = this.parseMul();
+        while (this.is('OPERADOR')&&['+','-'].includes(this.peek()[1])) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseMul()); l=n;
+        } return l;
     }
-
+    parseMul() {
+        let l = this.parseUnary();
+        while (this.is('OPERADOR')&&['*','/','%'].includes(this.peek()[1])) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(l); n.addChild(this.parseUnary()); l=n;
+        } return l;
+    }
     parseUnary() {
-        if (this.isType('OPERADOR') && (this.peek()[1] === '-' || this.peek()[1] === '!' || this.peek()[1] === '~')) {
-            const op = this.advance()[1];
-            return new ASTNode(AST_NODE_TYPES.UNARY_OP, op, [this.parseUnary()]);
+        if (this.is('OPERADOR')&&['-','!','~'].includes(this.peek()[1])) {
+            const n=new ASTNode(this.advance()[1]); n.addChild(this.parseUnary()); return n;
         }
-        if (this.isType('PALABRA_RESERVADA') && (this.peek()[1] === 'not' || this.peek()[1] === 'typeof')) {
-            const op = this.advance()[1];
-            return new ASTNode(AST_NODE_TYPES.UNARY_OP, op, [this.parseUnary()]);
+        if (this.is('PALABRA_RESERVADA','not')) {
+            this.advance(); const n=new ASTNode('not'); n.addChild(this.parseUnary()); return n;
         }
-        return this.parseCall();
+        return this.parsePostfix();
     }
-
-    parseCall() {
-        let expr = this.parsePrimary();
+    parsePostfix() {
+        let node = this.parsePrimary();
         while (true) {
-            if (this.match('CARACTER_ESPECIAL', '(')) {
-                const args = [];
-                if (!this.isType('CARACTER_ESPECIAL', ')')) {
-                    args.push(this.parseExpression());
-                    while (this.match('CARACTER_ESPECIAL', ',')) {
-                        args.push(this.parseExpression());
-                    }
-                }
-                this.match('CARACTER_ESPECIAL', ')');
-                expr = new ASTNode(AST_NODE_TYPES.FUNCTION_CALL, expr.value || 'call', [expr, ...args]);
-            } else if (this.match('CARACTER_ESPECIAL', '[')) {
-                const index = this.parseExpression();
-                this.match('CARACTER_ESPECIAL', ']');
-                expr = new ASTNode(AST_NODE_TYPES.ARRAY_INDEX, '[]', [expr, index]);
-            } else if (this.match('CARACTER_ESPECIAL', '.')) {
-                const member = this.advance();
-                expr = new ASTNode(AST_NODE_TYPES.MEMBER_ACCESS, member[1], [expr, new ASTNode(AST_NODE_TYPES.IDENTIFIER, member[1])]);
-            } else {
-                break;
+            // acceso a propiedad: obj.prop
+            if (this.is('CARACTER_ESPECIAL','.')) {
+                this.advance();
+                const acc = new ASTNode('.');
+                acc.addChild(node);
+                if (this.is('VARIABLE')) acc.addChild(new ASTNode(this.advance()[1]));
+                node = acc;
             }
+            // llamada: fn( args )
+            else if (this.is('CARACTER_ESPECIAL','(')) {
+                const args = new ASTNode('( )');
+                this.eat('CARACTER_ESPECIAL','(');
+                while (!this.is('CARACTER_ESPECIAL',')') && !this.isEOF()) {
+                    if (this.is('CARACTER_ESPECIAL',',')){ this.advance(); continue; }
+                    const e = this.parseExpr(); if(e) args.addChild(e);
+                }
+                this.eat('CARACTER_ESPECIAL',')');
+                const call = new ASTNode('call');
+                call.addChild(node); call.addChild(args);
+                node = call;
+            }
+            // índice: arr[ idx ]
+            else if (this.is('CARACTER_ESPECIAL','[')) {
+                const idx = this.parseBracketGroup();
+                const wrap = new ASTNode('[ ]');
+                wrap.addChild(node);
+                for (const c of idx.children) wrap.addChild(c);
+                node = wrap;
+            }
+            else break;
         }
-        return expr;
+        return node;
     }
-
     parsePrimary() {
-        const [t, v] = this.peek();
-
-        if (t === 'ENTERO' || t === 'REAL') {
-            this.advance();
-            return new ASTNode(AST_NODE_TYPES.NUMBER, v);
+        const [t,v] = this.peek();
+        if (t==='ENTERO'||t==='REAL')                      { this.advance(); return new ASTNode(v); }
+        if (t==='CADENA')                                  { this.advance(); return new ASTNode('"'+v+'"'); }
+        if (t==='VARIABLE'||t==='PALABRA_RESERVADA')       { this.advance(); return new ASTNode(v); }
+        if (t==='CARACTER_ESPECIAL'&&v==='(')              return this.parseParenGroup();
+        if (t==='CARACTER_ESPECIAL'&&v==='[')              return this.parseBracketGroup();
+        if (t==='CARACTER_ESPECIAL'&&v==='{')              return this.parseBlock();
+        // spread ...x
+        if (t==='CARACTER_ESPECIAL'&&v==='.') {
+            let dots=''; while(this.is('CARACTER_ESPECIAL','.')){this.advance();dots+='.';}
+            const n=new ASTNode('...');
+            if(this.is('VARIABLE')) n.addChild(new ASTNode(this.advance()[1]));
+            return n;
         }
-        if (t === 'CADENA') {
-            this.advance();
-            return new ASTNode(AST_NODE_TYPES.STRING, v);
-        }
-        if (t === 'PALABRA_RESERVADA' && (v === 'true' || v === 'false' || v === 'True' || v === 'False')) {
-            this.advance();
-            return new ASTNode(AST_NODE_TYPES.BOOLEAN, v);
-        }
-        if (t === 'PALABRA_RESERVADA' && (v === 'null' || v === 'None')) {
-            this.advance();
-            return new ASTNode('Null', v);
-        }
-        if (t === 'CARACTER_ESPECIAL' && v === '(') {
-            this.advance();
-            const expr = this.parseExpression();
-            this.match('CARACTER_ESPECIAL', ')');
-            return expr;
-        }
-        if (t === 'VARIABLE' || t === 'PALABRA_RESERVADA') {
-            this.advance();
-            const isType = ['int', 'float', 'double', 'char', 'bool', 'boolean', 'string', 'String', 'var', 'let', 'const', 'long', 'short', 'byte', 'void'].includes(v);
-            if (isType) {
-                const [nextT, nextV] = this.peek();
-                if (nextT === 'VARIABLE' || nextT === 'PALABRA_RESERVADA') {
-                    const nameNode = new ASTNode(AST_NODE_TYPES.IDENTIFIER, nextV);
-                    this.advance();
-                    if (this.match('OPERADOR', '=')) {
-                        const val = this.parseExpression();
-                        return new ASTNode(AST_NODE_TYPES.VAR_DECL, v, [nameNode, val]);
-                    } else if (this.match('CARACTER_ESPECIAL', '(')) {
-                        this.pos -= 2;
-                        return this.parseFunctionDecl();
-                    } else {
-                        this.match('CARACTER_ESPECIAL', ';');
-                        return new ASTNode(AST_NODE_TYPES.VAR_DECL, v, [nameNode]);
-                    }
-                }
-            }
-            return new ASTNode(AST_NODE_TYPES.IDENTIFIER, v);
-        }
-
-        this.advance();
-        return new ASTNode('Empty');
+        if (t!==null) { this.advance(); return new ASTNode(v); }
+        return null;
     }
 }
 
 // ══════════════════════════════════════════════════
-//  RENDERIZADO DEL ARBOL
+//  LAYOUT — Reingold-Tilford simplificado
+//  X = horizontal (entre hermanos)
+//  Y = vertical   (entre niveles, crece hacia abajo)
 // ══════════════════════════════════════════════════
-function createTreeSVG(ast) {
-    const nodeW = 56;
-    const nodeH = 36;
-    const gapX = 64;
-    const gapY = 70;
+const CFG = {
+    nodeH   : 34,   // alto del rectángulo de nodo
+    levelGap: 60,   // distancia vertical entre centros de nivel
+    hGap    : 14,   // espacio mínimo horizontal entre nodos hermanos
+    fontSize: 11,
+    charW   : 7.5,  // ancho aproximado por carácter
+    padX    : 12,   // padding horizontal dentro del nodo
+};
 
-    function leafCount(n) {
-        if (!n.children || n.children.length === 0) return 1;
-        return n.children.reduce((s, c) => s + leafCount(c), 0);
-    }
-
-    function treeDepth(n) {
-        if (!n.children || n.children.length === 0) return 1;
-        return 1 + Math.max(...n.children.map(treeDepth));
-    }
-
-    function layout(n, left, depth, out) {
-        const w = leafCount(n) * gapX;
-        const cx = left + w / 2;
-        const cy = depth * gapY + nodeH / 2;
-        out.push({ n, cx, cy });
-        if (n.children && n.children.length > 0) {
-            let cur = left;
-            n.children.forEach(ch => {
-                const cw = leafCount(ch) * gapX;
-                layout(ch, cur, depth + 1, out);
-                out.push({ edge: true, x1: cx, y1: cy + nodeH / 2, x2: cur + cw / 2, y2: (depth + 1) * gapY + nodeH / 2 - nodeH / 2 });
-                cur += cw;
-            });
-        }
-    }
-
-    const items = [];
-    layout(ast, 0, 0, items);
-
-    const tw = leafCount(ast) * gapX;
-    const th = treeDepth(ast) * gapY + nodeH;
-    const pad = 30;
-
-    let s = `<svg width="${tw + pad * 2}" height="${th + pad * 2}" xmlns="http://www.w3.org/2000/svg">`;
-    s += `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 1L8 5L0 9z" fill="#5b8df6"/></marker></defs>`;
-
-    items.filter(i => i.edge).forEach(e => {
-        s += `<line x1="${e.x1 + pad}" y1="${e.y1 + pad}" x2="${e.x2 + pad}" y2="${e.y2 + pad}" stroke="#252a38" stroke-width="1.5" marker-end="url(#arr)"/>`;
-    });
-
-    items.filter(i => !i.edge).forEach(p => {
-        const lbl = p.n.value !== null && p.n.value !== undefined && p.n.value !== '' ? p.n.value : p.n.type;
-        const short = lbl.length > 7 ? lbl.slice(0, 6) + '…' : lbl;
-        s += `<rect x="${p.cx - nodeW / 2 + pad}" y="${p.cy - nodeH / 2 + pad}" width="${nodeW}" height="${nodeH}" fill="#1a1e2a" stroke="#5b8df6" stroke-width="1.5" rx="2"/>`;
-        s += `<text x="${p.cx + pad}" y="${p.cy + 4 + pad}" text-anchor="middle" fill="#e2e8f4" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600">${short}</text>`;
-    });
-
-    s += '</svg>';
-    return s;
+function nodeW(label) {
+    return Math.max(String(label).length * CFG.charW + CFG.padX * 2, 44);
 }
 
-function renderTree(ast, container) {
-    container.innerHTML = '';
-    if (!ast) return;
-
-    container.classList.add('has-tree');
-
-    const treeDiv = document.createElement('div');
-    treeDiv.className = 'tree';
-    treeDiv.innerHTML = createTreeSVG(ast);
-
-    container.appendChild(treeDiv);
+// Ancho total que requiere el subárbol
+function subtreeW(node) {
+    if (!node) return 0;
+    const self = nodeW(node.lexema) + CFG.hGap;
+    if (!node.children || node.children.length === 0) return self;
+    const kids = node.children.reduce((s,c) => s + subtreeW(c), 0);
+    return Math.max(self, kids);
 }
 
+// Asignar coordenadas (_x, _y) a cada nodo
+function layout(node, level, leftEdge) {
+    if (!node) return;
+    const sw   = subtreeW(node);
+    node._x    = leftEdge + sw / 2;                      // centro horizontal del subárbol
+    node._y    = level * CFG.levelGap + CFG.nodeH / 2;   // centro vertical del nodo
+    let cursor = leftEdge;
+    for (const c of (node.children || [])) {
+        const cw = subtreeW(c);
+        layout(c, level + 1, cursor);
+        cursor += cw;
+    }
+}
+
+function collectAll(node, nodes=[], edges=[]) {
+    if (!node) return {nodes,edges};
+    nodes.push(node);
+    for (const c of (node.children||[])) {
+        edges.push({from:node, to:c});
+        collectAll(c, nodes, edges);
+    }
+    return {nodes,edges};
+}
+
+// Dimensiones totales del árbol
+function treeDims(ast) {
+    const w = subtreeW(ast);
+    let maxLevel = 0;
+    function depth(n,lv){ maxLevel=Math.max(maxLevel,lv); (n.children||[]).forEach(c=>depth(c,lv+1)); }
+    depth(ast, 0);
+    const h = (maxLevel + 1) * CFG.levelGap + CFG.nodeH;
+    return { w: Math.max(w, 120), h };
+}
+
+// ══════════════════════════════════════════════════
+//  ESTILOS DE NODO
+// ══════════════════════════════════════════════════
+const _KW     = new Set(['if','else','while','for','return','class','def','function',
+    'int','float','double','char','string','String','bool','boolean','long','short',
+    'void','var','let','const','new','import','from','print',
+    'true','false','True','False','null','None','this','super']);
+const _OPS    = new Set(['=','==','!=','<','>','<=','>=','+','-','*','/','%','!','and','or','not','&','|','~','...']);
+const _STRUCT = new Set(['PROGRAMA','{ }','( )','[ ]','call','.']);
+
+function nStyle(lbl) {
+    const l = String(lbl);
+    if (l==='PROGRAMA')             return {fill:'#0f2744',stroke:'#5b8df6',text:'#93c5fd',fw:700};
+    if (_STRUCT.has(l))             return {fill:'#0d2137',stroke:'#38bdf8',text:'#7dd3fc',fw:600};
+    if (_KW.has(l))                 return {fill:'#2d1060',stroke:'#a78bfa',text:'#ddd6fe',fw:600};
+    if (_OPS.has(l))                return {fill:'#431407',stroke:'#f97316',text:'#fed7aa',fw:700};
+    if (/^".*"$/.test(l))           return {fill:'#2e1065',stroke:'#c084fc',text:'#e9d5ff',fw:400};
+    if (/^\d+(\.\d+)?$/.test(l))    return {fill:'#3a1a00',stroke:'#fb923c',text:'#fdba74',fw:400};
+    return {fill:'#021b0e',stroke:'#4ade80',text:'#86efac',fw:400};
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER SVG
+// ══════════════════════════════════════════════════
+function buildSVG(ast) {
+    const PAD = 20;
+    const { w, h } = treeDims(ast);
+
+    layout(ast, 0, 0);
+    const { nodes, edges } = collectAll(ast);
+
+    // ── Aristas (curvas Bézier) ──
+    let edgesSVG = '';
+    for (const { from, to } of edges) {
+        const x1 = from._x, y1 = from._y + CFG.nodeH / 2;
+        const x2 = to._x,   y2 = to._y   - CFG.nodeH / 2;
+        const my  = (y1 + y2) / 2;
+        edgesSVG += `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${my.toFixed(1)} ${x2.toFixed(1)},${my.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"
+            fill="none" stroke="#334155" stroke-width="1.5" stroke-linecap="round"/>`;
+    }
+
+    // ── Nodos ──
+    let nodesSVG = '';
+    for (const node of nodes) {
+        const lbl = node.lexema !== null && node.lexema !== undefined ? String(node.lexema) : '?';
+        const s   = nStyle(lbl);
+        const nw  = nodeW(lbl);
+        const cx  = node._x, cy = node._y;
+        const esc = lbl.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+        nodesSVG += `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)})">
+          <rect x="${(-nw/2).toFixed(1)}" y="${(-CFG.nodeH/2).toFixed(1)}"
+            width="${nw}" height="${CFG.nodeH}" rx="7"
+            fill="${s.fill}" stroke="${s.stroke}" stroke-width="1.5"/>
+          <text x="0" y="1" text-anchor="middle" dominant-baseline="middle"
+            font-family="JetBrains Mono,monospace"
+            font-size="${CFG.fontSize}" font-weight="${s.fw}" fill="${s.text}">${esc}</text>
+        </g>`;
+    }
+
+    const vbW = w  + PAD * 2;
+    const vbH = h  + PAD * 2;
+
+    return `<svg xmlns="http://www.w3.org/2000/svg"
+        viewBox="${-PAD} ${-PAD} ${vbW} ${vbH}"
+        width="${vbW}" height="${vbH}">
+      ${edgesSVG}${nodesSVG}
+    </svg>`;
+}
+
+// ══════════════════════════════════════════════════
+//  API PÚBLICA
+// ══════════════════════════════════════════════════
 function analizarArbol(tokens) {
-    try {
-        const parser = new Parser(tokens);
-        const ast = parser.parse();
-        return ast;
-    } catch (e) {
-        console.error('Error de parseo:', e);
-        return new ASTNode('Error', e.message);
-    }
+    try { return new Parser(tokens).parse(); }
+    catch(e){ console.error('Parser error:', e); return null; }
 }
 
 function renderAstTree(ast, container) {
-    if (!ast) {
-        container.innerHTML = '<div class="placeholder"><span class="placeholder-icon">∅</span><span>No se pudo generar el árbol</span></div>';
+    if (!ast || !ast.children || ast.children.length === 0) {
+        container.classList.remove('has-tree');
+        container.innerHTML = `<div class="tree-placeholder" id="tree-placeholder">
+            <img src="nodos.png" alt="Árbol sintáctico">
+            <span>El árbol sintáctico aparecerá aquí</span>
+        </div>`;
         return;
     }
-    if (ast.type === 'Error') {
-        container.innerHTML = `<div class="placeholder"><span class="placeholder-icon">⚠</span><span>Error: ${ast.value}</span></div>`;
-        return;
-    }
-    renderTree(ast, container);
+
+    container.classList.add('has-tree');
+
+    const svg = buildSVG(ast);
+
+    // El wrapper permite scroll en ambas direcciones si el árbol es grande,
+    // pero NUNCA desborda el panel contenedor
+    container.innerHTML = `
+        <div style="
+            width:100%;
+            height:100%;
+            overflow:auto;
+            display:flex;
+            align-items:flex-start;
+            justify-content:center;
+            padding:1rem;
+            box-sizing:border-box;
+        ">${svg}</div>`;
 }

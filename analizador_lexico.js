@@ -181,13 +181,13 @@ function analizar() {
             const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return `<tr>
               <td>${idx + 1}</td>
-              <td><span class="badge" style="background:${m.bg};color:${m.fg}">${m.label}</span></td>
-              <td style="color:${m.fg};font-family:var(--mono)">${escaped}</td>
+              <td style="color:${m.fg};font-family:var(--mono)">&lt;&apos;${escaped}&apos;,</td>
+              <td><span class="badge" style="background:${m.bg};color:${m.fg}">${m.label}&gt;</span></td>
             </tr>`;
         }).join('');
 
         wrap.innerHTML = `<table>
-        <thead><tr><th>#</th><th>Tipo</th><th>Lexema</th></tr></thead>
+        <thead><tr><th>#</th><th>Lexema</th><th>Tipo</th></tr></thead>
         <tbody>${filas}</tbody>
       </table>`;
     }
